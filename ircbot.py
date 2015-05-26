@@ -1,4 +1,4 @@
-import re, select, socket
+import re, select, socket, traceback
 
 class IRCBot:
 	def __init__(self, ip, port, nick, **kwargs):
@@ -30,7 +30,7 @@ class IRCBot:
 		ping = self._recv()
 		self._send('PONG %s' % ping.split(' ')[1])
 
-		self._eventlist = {'PRIVMSG.*': []}
+		self._eventlist = {}
 
 	def __setattr__(self, name, value):
 		if name == 'nick':
@@ -68,22 +68,47 @@ class IRCBot:
 	def msg(self, channel, message):
 		self._send('PRIVMSG %s :%s' % (channel, message))
 
+	def _process_event(self, line):
+		if len(line) > 0:
+			command = line.split(' ')[1]
+			if command == 'PRIVMSG':
+				self._process_privmsg(line)
+			else:
+				self._process_generic(line)
+
+	def _process_privmsg(self, line):
+		source = line.split(' ')[0][1:]
+		channel = line.split(' ')[2]
+		msg = ' '.join(line.split(' ')[3:])[1:]
+		args = {'line': line, 'source': source, 'channel': channel, 'message': msg}
+		self._fire_event('PRIVMSG', args, msg, channel=channel)
+
+	def _process_generic(self, line):
+		command = line.split(' ')[1]
+		args = {'line': line}
+		self._fire_event(command, args, line)
+
+	def _fire_event(self, event, args, match, **kwargs):
+		try:
+			print(''.join([event, '.*']))
+			for event in self._eventlist[''.join([event, '.*'])]:
+				print('gay')
+				if re.match(event[0], match):
+					event[1](self, args)
+		except Exception as err:
+			pass
+		try:
+			for event in self._eventlist[''.join([event, '.', kwargs["channel"]])]:
+				if re.match(event[0], match):
+					event[1](self, args)
+		except Exception as err:
+			pass
+
 	def loop(self):
 		while True:
 			data = self._recv()
 			dataArray = data.split('\n')
 			for line in dataArray:
-				if len(line) > 0:
-					command = line.split(' ')[1]
-					if command == 'PRIVMSG':
-						channel = line.split(' ')[2]
-						msg = ' '.join(line.split(' ')[3:])[1:]
-						for event in self._eventlist['PRIVMSG.*']:
-							if re.match(event[0], msg):
-								event[1](self, line)
-						try:
-							for event in self._eventlist[''.join(['PRIVMSG.', channel])]:
-								if re.match(event[0], msg):
-									event[1](self, line)
-						except:
-							pass
+				self._process_event(line)
+
+					
