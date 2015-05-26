@@ -1,4 +1,4 @@
-import select, socket
+import re, select, socket
 
 class IRCBot:
 	def __init__(self, ip, port, nick, **kwargs):
@@ -30,7 +30,7 @@ class IRCBot:
 		ping = self._recv()
 		self._send('PONG %s' % ping.split(' ')[1])
 
-		self._eventlist = {}
+		self._eventlist = {'PRIVMSG.*': []}
 
 	def __setattr__(self, name, value):
 		if name == 'nick':
@@ -50,9 +50,40 @@ class IRCBot:
 				print('< %s' % line.rstrip())
 		return data
 
+	# def _convert_wildcard(self, search):
+	# 	search = search.replace('\\', '\\\\')
+	# 	search = re.escape(search)
+	# 	return search.replace('\\*', '.+').replace('\\?', '.')
+
+	def hook_msg(self, channel, message, func):
+		try:
+			self._eventlist[''.join(["PRIVMSG.", channel])].append((re.compile(message), func))
+		except:
+			self._eventlist[''.join(['PRIVMSG.', channel])] = []
+			self._eventlist[''.join(["PRIVMSG.", channel])].append((re.compile(message), func))
+
 	def join(self, channel):
 		self._send('JOIN %s' % channel)
+
+	def msg(self, channel, message):
+		self._send('PRIVMSG %s :%s' % (channel, message))
 
 	def loop(self):
 		while True:
 			data = self._recv()
+			dataArray = data.split('\n')
+			for line in dataArray:
+				if len(line) > 0:
+					command = line.split(' ')[1]
+					if command == 'PRIVMSG':
+						channel = line.split(' ')[2]
+						msg = ' '.join(line.split(' ')[3:])[1:]
+						for event in self._eventlist['PRIVMSG.*']:
+							if re.match(event[0], msg):
+								event[1](self, line)
+						try:
+							for event in self._eventlist[''.join(['PRIVMSG.', channel])]:
+								if re.match(event[0], msg):
+									event[1](self, line)
+						except:
+							pass
