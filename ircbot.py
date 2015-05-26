@@ -55,12 +55,23 @@ class IRCBot:
 	# 	search = re.escape(search)
 	# 	return search.replace('\\*', '.+').replace('\\?', '.')
 
-	def hook_msg(self, channel, message, func):
+	def user_array(self, user):
+		nick = user.split('!')[0]
+		username = user.split('!')[1].split('@')[0]
+		address = user.split('@')[1]
+		return (nick, username, address)
+
+	def _hook_generic(self, command, channel, match, func):
 		try:
-			self._eventlist[''.join(["PRIVMSG.", channel])].append((re.compile(message), func))
+			self._eventlist[''.join([command, '.', channel])].append((re.compile(match), func))
 		except:
-			self._eventlist[''.join(['PRIVMSG.', channel])] = []
-			self._eventlist[''.join(["PRIVMSG.", channel])].append((re.compile(message), func))
+			self._eventlist[''.join([command, '.', channel])] = []
+			self._eventlist[''.join([command, '.', channel])].append((re.compile(match), func))
+
+	def hook_join(self, channel, user, func): self._hook_generic('JOIN', channel, user, func)
+	def hook_msg(self, channel, message, func):	self._hook_generic('PRIVMSG', channel, message, func)
+	def hook_part(self, channel, user, func): self._hook_generic('PART', channel, user, func)
+	def hook_quit(self, user, func): self._hook_generic('QUIT', '*', '.*', func)
 
 	def join(self, channel):
 		self._send('JOIN %s' % channel)
@@ -71,10 +82,32 @@ class IRCBot:
 	def _process_event(self, line):
 		if len(line) > 0:
 			command = line.split(' ')[1]
-			if command == 'PRIVMSG':
+			if command == 'JOIN':
+				self._process_join(line)
+			elif command == 'PART':
+				self._process_part(line)
+			elif command == 'PRIVMSG':
 				self._process_privmsg(line)
+			elif command == 'QUIT':
+				self._process_quit(line)
 			else:
 				self._process_generic(line)
+
+	def _process_join(self, line):
+		source = line.split(' ')[0][1:]
+		channel = line.split(' ')[2][1:].rstrip()
+		args = {'line': line, 'source': source, 'channel': channel}
+		self._fire_event('JOIN', args, channel, channel=channel)
+
+	def _process_part(self, line):
+		source = line.split(' ')[0][1:]
+		channel = line.split(' ')[2].rstrip()
+		if len(line.split(' ')) > 2:
+			msg = ' '.join(line.split(' ')[3:])[1:].rstrip()
+		else:
+			msg = ''
+		args = {'line': line, 'source': source, 'channel': channel, 'message': msg}
+		self._fire_event('PART', args, channel, channel=channel)
 
 	def _process_privmsg(self, line):
 		source = line.split(' ')[0][1:]
@@ -90,17 +123,23 @@ class IRCBot:
 
 	def _fire_event(self, event, args, match, **kwargs):
 		try:
-			print(''.join([event, '.*']))
 			for event in self._eventlist[''.join([event, '.*'])]:
-				print('gay')
 				if re.match(event[0], match):
-					event[1](self, args)
+					try:
+						event[1](self, args)
+					except Exception:
+						traceback.print_exc()
+						pass
 		except Exception as err:
 			pass
 		try:
-			for event in self._eventlist[''.join([event, '.', kwargs["channel"]])]:
+			for event in self._eventlist[''.join([event, '.', kwargs['channel']])]:
 				if re.match(event[0], match):
-					event[1](self, args)
+					try:
+						event[1](self, args)
+					except Exception:
+						traceback.print_exc()
+						pass
 		except Exception as err:
 			pass
 
